@@ -15,7 +15,6 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 """
-
 import argparse
 import functools
 import os
@@ -41,9 +40,6 @@ from ..callbacks import RedirectModel
 from ..callbacks.eval import Evaluate
 from ..models.retinanet import retinanet_bbox
 from ..preprocessing.csv_generator import CSVGenerator
-from ..preprocessing.kitti import KittiGenerator
-from ..preprocessing.open_images import OpenImagesGenerator
-from ..preprocessing.pascal_voc import PascalVocGenerator
 from ..utils.anchors import make_shapes_callback, anchor_targets_bbox
 from ..utils.keras_version import check_keras_version
 from ..utils.model import freeze as freeze_model
@@ -63,7 +59,7 @@ def makedirs(path):
 
 def get_session():
     config = tf.ConfigProto()
-    config.gpu_options.allow_growth = True
+    config.gpu_options.per_process_gpu_memory_fraction = 0.5
     return tf.Session(config=config)
 
 
@@ -104,6 +100,20 @@ def create_models(backbone_retinanet, num_classes, weights, multi_gpu=0, freeze_
 def create_callbacks(model, training_model, prediction_model, validation_generator, args):
     callbacks = []
 
+    # save the model
+    if args.snapshots:
+        # ensure directory created first; otherwise h5py will error after epoch.
+        makedirs(args.snapshot_path)
+        checkpoint = keras.callbacks.ModelCheckpoint(
+            os.path.join(
+                args.snapshot_path,
+                '{backbone}_{{epoch:02d}}.h5'.format(backbone=args.backbone)
+            ),
+            verbose=1
+        )
+        checkpoint = RedirectModel(checkpoint, model)
+        callbacks.append(checkpoint)
+
     tensorboard_callback = None
 
     if args.tensorboard_dir:
@@ -121,32 +131,9 @@ def create_callbacks(model, training_model, prediction_model, validation_generat
         callbacks.append(tensorboard_callback)
 
     if args.evaluation and validation_generator:
-        if args.dataset_type == 'coco':
-            from ..callbacks.coco import CocoEval
-
-            # use prediction model for evaluation
-            evaluation = CocoEval(validation_generator, tensorboard=tensorboard_callback)
-        else:
-            evaluation = Evaluate(validation_generator, tensorboard=tensorboard_callback)
+        evaluation = Evaluate(validation_generator, tensorboard=tensorboard_callback)
         evaluation = RedirectModel(evaluation, prediction_model)
         callbacks.append(evaluation)
-
-    # save the model
-    if args.snapshots:
-        # ensure directory created first; otherwise h5py will error after epoch.
-        makedirs(args.snapshot_path)
-        checkpoint = keras.callbacks.ModelCheckpoint(
-            os.path.join(
-                args.snapshot_path,
-                '{backbone}_{dataset_type}_{{epoch:02d}}.h5'.format(backbone=args.backbone, dataset_type=args.dataset_type)
-            ),
-            verbose=1,
-            # save_best_only=True,
-            # monitor="mAP",
-            # mode='max'
-        )
-        checkpoint = RedirectModel(checkpoint, model)
-        callbacks.append(checkpoint)
 
     callbacks.append(keras.callbacks.ReduceLROnPlateau(
         monitor  = 'loss',
@@ -158,6 +145,9 @@ def create_callbacks(model, training_model, prediction_model, validation_generat
         cooldown = 0,
         min_lr   = 0
     ))
+
+    if args.snapshot_path:
+        os.makedirs(args.snapshot_path, exist_ok=True)
 
     return callbacks
 
@@ -174,113 +164,31 @@ def create_generators(args):
             max_shear=0.1,
             min_scaling=(0.9, 0.9),
             max_scaling=(1.1, 1.1),
-            flip_x_chance=0.5,
-            flip_y_chance=0.5,
         )
     else:
         transform_generator = random_transform_generator(flip_x_chance=0.5)
 
-    if args.dataset_type == 'coco':
-        # import here to prevent unnecessary dependency on cocoapi
-        from ..preprocessing.coco import CocoGenerator
+    train_generator = CSVGenerator(
+        args.annotations,
+        args.classes,
+        transform_generator=transform_generator,
+        batch_size=args.batch_size,
+        image_min_side=args.image_min_side,
+        image_max_side=args.image_max_side,
+        base_dir=args.images_dir
+    )
 
-        train_generator = CocoGenerator(
-            args.coco_path,
-            'train2017',
-            transform_generator=transform_generator,
-            batch_size=args.batch_size,
-            image_min_side=args.image_min_side,
-            image_max_side=args.image_max_side
-        )
-
-        validation_generator = CocoGenerator(
-            args.coco_path,
-            'val2017',
-            batch_size=args.batch_size,
-            image_min_side=args.image_min_side,
-            image_max_side=args.image_max_side
-        )
-    elif args.dataset_type == 'pascal':
-        train_generator = PascalVocGenerator(
-            args.pascal_path,
-            'trainval',
-            transform_generator=transform_generator,
-            batch_size=args.batch_size,
-            image_min_side=args.image_min_side,
-            image_max_side=args.image_max_side
-        )
-
-        validation_generator = PascalVocGenerator(
-            args.pascal_path,
-            'test',
-            batch_size=args.batch_size,
-            image_min_side=args.image_min_side,
-            image_max_side=args.image_max_side
-        )
-    elif args.dataset_type == 'csv':
-        train_generator = CSVGenerator(
-            args.annotations,
+    if args.val_annotations:
+        validation_generator = CSVGenerator(
+            args.val_annotations,
             args.classes,
-            transform_generator=transform_generator,
             batch_size=args.batch_size,
             image_min_side=args.image_min_side,
-            image_max_side=args.image_max_side
-        )
-
-        if args.val_annotations:
-            validation_generator = CSVGenerator(
-                args.val_annotations,
-                args.classes,
-                batch_size=args.batch_size,
-                image_min_side=args.image_min_side,
-                image_max_side=args.image_max_side
-            )
-        else:
-            validation_generator = None
-    elif args.dataset_type == 'oid':
-        train_generator = OpenImagesGenerator(
-            args.main_dir,
-            subset='train',
-            version=args.version,
-            labels_filter=args.labels_filter,
-            annotation_cache_dir=args.annotation_cache_dir,
-            fixed_labels=args.fixed_labels,
-            transform_generator=transform_generator,
-            batch_size=args.batch_size,
-            image_min_side=args.image_min_side,
-            image_max_side=args.image_max_side
-        )
-
-        validation_generator = OpenImagesGenerator(
-            args.main_dir,
-            subset='validation',
-            version=args.version,
-            labels_filter=args.labels_filter,
-            annotation_cache_dir=args.annotation_cache_dir,
-            fixed_labels=args.fixed_labels,
-            batch_size=args.batch_size,
-            image_min_side=args.image_min_side,
-            image_max_side=args.image_max_side
-        )
-    elif args.dataset_type == 'kitti':
-        train_generator = KittiGenerator(
-            args.kitti_path,
-            subset='train',
-            transform_generator=transform_generator,
-            batch_size=args.batch_size,
-            image_min_side=args.image_min_side,
-            image_max_side=args.image_max_side
-        )
-
-        validation_generator = KittiGenerator(
-            args.kitti_path,
-            subset='val',
-            batch_size=args.batch_size,
-            image_min_side=args.image_min_side,
-            image_max_side=args.image_max_side
+            image_max_side=args.image_max_side,
+            base_dir=args.val_images
         )
     else:
-        raise ValueError('Invalid data type received: {}'.format(args.dataset_type))
+        validation_generator = None
 
     return train_generator, validation_generator
 
@@ -316,32 +224,12 @@ def check_args(parsed_args):
 
 def parse_args(args):
     parser     = argparse.ArgumentParser(description='Simple training script for training a RetinaNet network.')
-    subparsers = parser.add_subparsers(help='Arguments for specific dataset types.', dest='dataset_type')
-    subparsers.required = True
 
-    coco_parser = subparsers.add_parser('coco')
-    coco_parser.add_argument('coco_path', help='Path to dataset directory (ie. /tmp/COCO).')
-
-    pascal_parser = subparsers.add_parser('pascal')
-    pascal_parser.add_argument('pascal_path', help='Path to dataset directory (ie. /tmp/VOCdevkit).')
-
-    kitti_parser = subparsers.add_parser('kitti')
-    kitti_parser.add_argument('kitti_path', help='Path to dataset directory (ie. /tmp/kitti).')
-
-    def csv_list(string):
-        return string.split(',')
-
-    oid_parser = subparsers.add_parser('oid')
-    oid_parser.add_argument('main_dir', help='Path to dataset directory.')
-    oid_parser.add_argument('--version',  help='The current dataset version is v4.', default='v4')
-    oid_parser.add_argument('--labels-filter',  help='A list of labels to filter.', type=csv_list, default=None)
-    oid_parser.add_argument('--annotation-cache-dir', help='Path to store annotation cache.', default='.')
-    oid_parser.add_argument('--fixed-labels', help='Use the exact specified labels.', default=False)
-
-    csv_parser = subparsers.add_parser('csv')
-    csv_parser.add_argument('annotations', help='Path to CSV file containing annotations for training.')
-    csv_parser.add_argument('classes', help='Path to a CSV file containing class label mapping.')
-    csv_parser.add_argument('--val-annotations', help='Path to CSV file containing annotations for validation (optional).')
+    parser.add_argument('images_dir', help='Path to train images folder.')
+    parser.add_argument('annotations', help='Path to CSV file containing annotations for training.')
+    parser.add_argument('classes', help='Path to a CSV file containing class label mapping.')
+    parser.add_argument('--val-annotations', help='Path to CSV file containing annotations for validation (optional).')
+    parser.add_argument('--val-images', help='Path to validation images folder (optional).')
 
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--snapshot',          help='Resume training from a snapshot.')
@@ -408,9 +296,6 @@ def main(args=None):
             multi_gpu=args.multi_gpu,
             freeze_backbone=args.freeze_backbone
         )
-
-    # print model summary
-    print(model.summary())
 
     # this lets the generator compute backbone layer shapes using the actual backbone model
     if 'vgg' in args.backbone or 'densenet' in args.backbone:
