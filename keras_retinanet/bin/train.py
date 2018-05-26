@@ -57,9 +57,9 @@ def makedirs(path):
             raise
 
 
-def get_session():
+def get_session(memory_fraction):
     config = tf.ConfigProto()
-    config.gpu_options.per_process_gpu_memory_fraction = 0.5
+    config.gpu_options.per_process_gpu_memory_fraction = memory_fraction
     return tf.Session(config=config)
 
 
@@ -252,6 +252,7 @@ def parse_args(args):
     parser.add_argument('--random-transform', help='Randomly transform image and annotations.', action='store_true')
     parser.add_argument('--image-min-side', help='Rescale the image so the smallest side is min_side.', type=int, default=800)
     parser.add_argument('--image-max-side', help='Rescale the image if the largest side is larger than max_side.', type=int, default=1333)
+    parser.add_argument('--gpu-memory-fraction', type=float, default=0.5)
 
     return check_args(parser.parse_args(args))
 
@@ -271,7 +272,7 @@ def main(args=None):
     # optionally choose specific GPU
     if args.gpu:
         os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
-    keras.backend.tensorflow_backend.set_session(get_session())
+    keras.backend.tensorflow_backend.set_session(get_session(args.gpu_memory_fraction))
 
     # create the generators
     train_generator, validation_generator = create_generators(args)
