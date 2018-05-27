@@ -15,14 +15,12 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 """
-
 import argparse
 import os
 import sys
 
 import keras
 import tensorflow as tf
-
 # Allow relative imports when being executed as script.
 if __name__ == "__main__" and __package__ is None:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -32,62 +30,33 @@ if __name__ == "__main__" and __package__ is None:
 # Change these to absolute imports if you copy this script outside the keras_retinanet package.
 from .. import models
 from ..preprocessing.csv_generator import CSVGenerator
-from ..preprocessing.pascal_voc import PascalVocGenerator
 from ..utils.eval import evaluate
 from ..utils.keras_version import check_keras_version
 
 
 def get_session():
     config = tf.ConfigProto()
-    config.gpu_options.allow_growth = True
+    config.gpu_options.per_process_gpu_memory_fraction = 0.5
     return tf.Session(config=config)
 
 
 def create_generator(args):
-    if args.dataset_type == 'coco':
-        # import here to prevent unnecessary dependency on cocoapi
-        from ..preprocessing.coco import CocoGenerator
-
-        validation_generator = CocoGenerator(
-            args.coco_path,
-            'val2017',
-            image_min_side=args.image_min_side,
-            image_max_side=args.image_max_side
-        )
-    elif args.dataset_type == 'pascal':
-        validation_generator = PascalVocGenerator(
-            args.pascal_path,
-            'test',
-            image_min_side=args.image_min_side,
-            image_max_side=args.image_max_side
-        )
-    elif args.dataset_type == 'csv':
-        validation_generator = CSVGenerator(
-            args.annotations,
-            args.classes,
-            image_min_side=args.image_min_side,
-            image_max_side=args.image_max_side
-        )
-    else:
-        raise ValueError('Invalid data type received: {}'.format(args.dataset_type))
+    validation_generator = CSVGenerator(
+        args.annotations,
+        args.classes,
+        image_min_side=args.image_min_side,
+        image_max_side=args.image_max_side,
+        base_dir=args.images_dir
+    )
 
     return validation_generator
 
 
 def parse_args(args):
     parser     = argparse.ArgumentParser(description='Evaluation script for a RetinaNet network.')
-    subparsers = parser.add_subparsers(help='Arguments for specific dataset types.', dest='dataset_type')
-    subparsers.required = True
-
-    coco_parser = subparsers.add_parser('coco')
-    coco_parser.add_argument('coco_path', help='Path to dataset directory (ie. /tmp/COCO).')
-
-    pascal_parser = subparsers.add_parser('pascal')
-    pascal_parser.add_argument('pascal_path', help='Path to dataset directory (ie. /tmp/VOCdevkit).')
-
-    csv_parser = subparsers.add_parser('csv')
-    csv_parser.add_argument('annotations', help='Path to CSV file containing annotations for evaluation.')
-    csv_parser.add_argument('classes', help='Path to a CSV file containing class label mapping.')
+    parser.add_argument('images_dir', help='Path to train images folder.')
+    parser.add_argument('annotations', help='Path to CSV file containing annotations for evaluation.')
+    parser.add_argument('classes', help='Path to a CSV file containing class label mapping.')
 
     parser.add_argument('model',             help='Path to RetinaNet model.')
     parser.add_argument('--convert-model',   help='Convert the model to an inference model (ie. the input is a training model).', action='store_true')
@@ -128,8 +97,8 @@ def main(args=None):
     print('Loading model, this may take a second...')
     model = models.load_model(args.model, backbone_name=args.backbone, convert=args.convert_model)
 
-    # print model summary
-    # print(model.summary())
+    if args.save_path:
+        os.makedirs(args.save_path, exist_ok=True)
 
     # start evaluation
     average_precisions = evaluate(
