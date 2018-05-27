@@ -59,7 +59,6 @@ def parse_args(args):
     parser.add_argument('classes', help='Path to a CSV file containing class label mapping.')
 
     parser.add_argument('model',             help='Path to RetinaNet model.')
-    parser.add_argument('--convert-model',   help='Convert the model to an inference model (ie. the input is a training model).', action='store_true')
     parser.add_argument('--backbone',        help='The backbone of the model.', default='resnet50')
     parser.add_argument('--gpu',             help='Id of the GPU to use (as reported by nvidia-smi).')
     parser.add_argument('--score-threshold', help='Threshold on score to filter detections with (defaults to 0.05).', default=0.05, type=float)
@@ -95,7 +94,7 @@ def main(args=None):
 
     # load the model
     print('Loading model, this may take a second...')
-    model = models.load_model(args.model, backbone_name=args.backbone, convert=args.convert_model)
+    model = models.load_model(args.model, backbone_name=args.backbone, convert=True)
 
     if args.save_path:
         os.makedirs(args.save_path, exist_ok=True)
