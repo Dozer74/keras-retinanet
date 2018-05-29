@@ -255,6 +255,7 @@ def parse_args(args):
     parser.add_argument('--image-max-side', help='Rescale the image if the largest side is larger than max_side.', type=int, default=1333)
     parser.add_argument('--gpu-memory-fraction', type=float, default=0.5)
     parser.add_argument('-lr','--learning-rate', type=float, default=1e-5)
+    parser.add_argument('--workers', type=int, default=1)
 
     return check_args(parser.parse_args(args))
 
@@ -324,6 +325,7 @@ def main(args=None):
         epochs=args.epochs,
         verbose=1,
         callbacks=callbacks,
+        workers=args.workers
     )
 
 if __name__ == '__main__':
