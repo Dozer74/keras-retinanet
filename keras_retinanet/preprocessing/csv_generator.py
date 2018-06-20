@@ -80,11 +80,13 @@ def _read_annotations_csv(path, classes):
         if y2 <= y1:
             raise ValueError('line {}: y2 ({}) must be higher than y1 ({})'.format(line, y2, y1))
 
+        if isinstance(row.label, float):
+            label = str(int(row.label))
         # check if the current class name is correctly present
-        if row.label not in classes:
-            raise ValueError('line {}: unknown class name: \'{}\' (classes: {})'.format(line, row.label, classes))
+        if label not in classes:
+            raise ValueError('line {}: unknown class name: \'{}\' (classes: {})'.format(line, label, classes))
 
-        result[row.filename].append({'x1': x1, 'x2': x2, 'y1': y1, 'y2': y2, 'class': row.label})
+        result[row.filename].append({'x1': x1, 'x2': x2, 'y1': y1, 'y2': y2, 'class': label})
     return result
 
 def _open_for_csv(path):
