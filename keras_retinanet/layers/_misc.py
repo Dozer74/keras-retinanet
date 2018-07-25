@@ -17,6 +17,7 @@ limitations under the License.
 import keras
 from .. import backend
 from ..utils import anchors as utils_anchors
+from .. import config
 
 import numpy as np
 
@@ -29,11 +30,11 @@ class Anchors(keras.layers.Layer):
         self.scales = scales
 
         if ratios is None:
-            self.ratios  = np.array([0.5, 1, 2], keras.backend.floatx()),
+            self.ratios  = np.array(config.RATIOS, keras.backend.floatx()),
         elif isinstance(ratios, list):
             self.ratios  = np.array(ratios)
         if scales is None:
-            self.scales  = np.array([2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)], keras.backend.floatx()),
+            self.scales  = np.array(config.SCALES, keras.backend.floatx()),
         elif isinstance(scales, list):
             self.scales  = np.array(scales)
 

@@ -12,17 +12,17 @@ import keras
 import keras.preprocessing.image
 import tensorflow as tf
 
-# Allow relative imports when being executed as script.
-from keras_retinanet.utils.image import read_image_bgr, preprocess_image, resize_image
 
+# Allow relative imports when being executed as script.
 if __name__ == "__main__" and __package__ is None:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
     import keras_retinanet.bin
-
     __package__ = "keras_retinanet.bin"
 
 from .. import models
+from .. import config
 from ..models.retinanet import retinanet_bbox
+from keras_retinanet.utils.image import read_image_bgr, preprocess_image, resize_image
 
 
 def get_session(memory_fraction):
@@ -47,16 +47,17 @@ def parse_args(args):
     parser.add_argument('--gpu-memory-fraction', type=float, default=0.5)
     parser.add_argument('--save', dest='save_type', choices=['all', 'image', 'text'], default='image')
     parser.add_argument('--path', dest='save_path', default='results')
+    parser.add_argument('--caption', dest='caption_type', choices=['none', 'label', 'score', 'all'], default='score')
 
     subparsers = parser.add_subparsers(dest='detection_type')
     subparsers.required = True
 
     subparsers.add_parser('whole')
 
-    parser_b = subparsers.add_parser('crops')
-    parser_b.add_argument('--cols', type=int, default=1)
-    parser_b.add_argument('--rows', type=int, default=1)
-    parser_b.add_argument('--add-whole', action='store_true', default=False)
+    parser_crops = subparsers.add_parser('crops')
+    parser_crops.add_argument('--cols', type=int, default=1)
+    parser_crops.add_argument('--rows', type=int, default=1)
+    parser_crops.add_argument('--add-whole', action='store_true', default=False)
 
     return parser.parse_args(args)
 
@@ -119,9 +120,9 @@ def nms_fast(boxes, overlapThresh=0.5):
     return boxes[pick]
 
 
-def predict_crop(model, crop_bgr, image_min_side=800, image_max_side=1333, score_threshold=0.33):
+def predict_crop(model, crop_bgr, args):
     img_ar = preprocess_image(crop_bgr)
-    img_ar, scale = resize_image(img_ar, min_side=image_min_side, max_side=image_max_side)
+    img_ar, scale = resize_image(img_ar, min_side=args.image_min_side, max_side=args.image_max_side)
     img_ar = np.expand_dims(img_ar, axis=0)
 
     boxes, scores, labels = model.predict_on_batch(img_ar)
@@ -129,7 +130,7 @@ def predict_crop(model, crop_bgr, image_min_side=800, image_max_side=1333, score
 
     results = []
     for box, score, label in zip(boxes[0], scores[0], labels[0]):
-        if score < score_threshold:
+        if score < args.score_threshold:
             break
 
         x1, y1, x2, y2 = box.astype(int)
@@ -138,7 +139,23 @@ def predict_crop(model, crop_bgr, image_min_side=800, image_max_side=1333, score
     return results
 
 
-def save_results(results, img_rgb, save_path, save_type):
+def format_caption(caption_type, label, score):
+    if caption_type == 'none':
+        return ''
+
+    if isinstance(label, float):
+        label = int(label)
+    label = str(label)
+    score = '{:.2f}'.format(score)
+
+    return {
+        'label': label,
+        'score': score,
+        'all': '{} ({})'.format(label, score)
+    }[caption_type]
+
+
+def save_results(results, img_rgb, save_path, save_type, caption_type):
     if save_type == 'text' or save_type == 'all':
         save_text_path = os.path.splitext(save_path)[0] + '.txt'
         with open(save_text_path, 'w') as f:
@@ -155,9 +172,10 @@ def save_results(results, img_rgb, save_path, save_type):
             color = 'b'
             ax.add_patch(plt.Rectangle((x1, y1), w, h, color=color, fill=False, linewidth=1))
 
-            caption = '{:.2f}'.format(score)
-            ax.text(x1, y1 - 10, caption, size=10, color='white',
-                    bbox={'edgecolor': color, 'facecolor': color, 'alpha': 0.7, 'pad': 4})
+            if caption_type != 'none':
+                caption = format_caption(caption_type, label, score)
+                ax.text(x1, y1 - 20, caption, size=5, color='white',
+                        bbox={'edgecolor': color, 'facecolor': color, 'alpha': 0.7, 'pad': 1})
 
         plt.imshow(img_rgb)
         plt.axis('off')
@@ -175,7 +193,6 @@ def make_crops(img, rows, cols):
         for x in range(rows):
             crop = img[y * y_part:(y + 1) * y_part, x * x_part:(x + 1) * x_part]
             crops.append((crop, (x * x_part, y * y_part)))
-
     return crops
 
 
@@ -187,7 +204,7 @@ def main(args=None):
 
     print('Loading model...', end=' ', flush=True)
     model = models.load_model(args.model, backbone_name=args.backbone)
-    prediction_model = retinanet_bbox(model=model, nms=True)
+    prediction_model = retinanet_bbox(anchor_parameters=config.ANCHOR_PARAMS, model=model, nms=True)
     print('Ok.')
 
     for path in tqdm(glob(join(args.images_dir, '*.jpg'))):
@@ -196,15 +213,15 @@ def main(args=None):
 
         results = []
         if args.detection_type == 'whole':
-            results = predict_crop(prediction_model, img_bgr, score_threshold=args.score_threshold)
+            results = predict_crop(prediction_model, img_bgr, args)
         else:
             for crop, offsets in make_crops(img_bgr, args.rows, args.cols):
                 dx, dy = offsets
-                for box in predict_crop(prediction_model, crop, score_threshold=args.score_threshold):
+                for box in predict_crop(prediction_model, crop, args):
                     x1, y1, x2, y2, label, conf = box
                     results.append([x1 + dx, y1 + dy, x2 + dx, y2 + dy, label, conf])
             if args.add_whole:
-                results += predict_crop(prediction_model, img_bgr, score_threshold=args.score_threshold)
+                results += predict_crop(prediction_model, img_bgr, args)
 
         results = np.array(results)
         results = nms_fast(results)
@@ -213,7 +230,7 @@ def main(args=None):
         os.makedirs(output_dir, exist_ok=True)
         save_path = join(output_dir, basename(path))
 
-        save_results(results, img_rgb, save_path, args.save_type)
+        save_results(results, img_rgb, save_path, args.save_type, args.caption_type)
 
 
 if __name__ == '__main__':

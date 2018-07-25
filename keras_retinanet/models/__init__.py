@@ -72,10 +72,11 @@ def load_model(filepath, backbone_name='resnet50', convert=False, nms=True):
         ValueError: In case of an invalid savefile.
     """
     import keras.models
+    from .. import config
 
     model = keras.models.load_model(filepath, custom_objects=backbone(backbone_name).custom_objects)
     if convert:
         from .retinanet import retinanet_bbox
-        model = retinanet_bbox(model=model, nms=nms)
+        model = retinanet_bbox(anchor_parameters=config.ANCHOR_PARAMS, model=model, nms=nms)
 
     return model

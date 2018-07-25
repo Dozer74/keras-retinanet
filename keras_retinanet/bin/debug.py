@@ -29,9 +29,7 @@ if __name__ == "__main__" and __package__ is None:
     __package__ = "keras_retinanet.bin"
 
 # Change these to absolute imports if you copy this script outside the keras_retinanet package.
-from ..preprocessing.pascal_voc import PascalVocGenerator
 from ..preprocessing.csv_generator import CSVGenerator
-from ..preprocessing.kitti import KittiGenerator
 from ..preprocessing.open_images import OpenImagesGenerator
 from ..utils.transform import random_transform_generator
 from ..utils.visualization import draw_annotations, draw_boxes
@@ -47,85 +45,24 @@ def create_generator(args):
         min_shear=-0.1,
         max_shear=0.1,
         min_scaling=(0.9, 0.9),
-        max_scaling=(1.1, 1.1),
-        flip_x_chance=0.5,
-        flip_y_chance=0.5,
+        max_scaling=(1.1, 1.1)
     )
 
-    if args.dataset_type == 'coco':
-        # import here to prevent unnecessary dependency on cocoapi
-        from ..preprocessing.coco import CocoGenerator
-
-        generator = CocoGenerator(
-            args.coco_path,
-            args.coco_set,
-            transform_generator=transform_generator
-        )
-    elif args.dataset_type == 'pascal':
-        generator = PascalVocGenerator(
-            args.pascal_path,
-            args.pascal_set,
-            transform_generator=transform_generator
-        )
-    elif args.dataset_type == 'csv':
-        generator = CSVGenerator(
-            args.annotations,
-            args.classes,
-            transform_generator=transform_generator
-        )
-    elif args.dataset_type == 'oid':
-        generator = OpenImagesGenerator(
-            args.main_dir,
-            subset=args.subset,
-            version=args.version,
-            labels_filter=args.labels_filter,
-            fixed_labels=args.fixed_labels,
-            annotation_cache_dir=args.annotation_cache_dir,
-            transform_generator=transform_generator
-        )
-    elif args.dataset_type == 'kitti':
-        generator = KittiGenerator(
-            args.kitti_path,
-            subset=args.subset,
-            transform_generator=transform_generator
-        )
-    else:
-        raise ValueError('Invalid data type received: {}'.format(args.dataset_type))
+    generator = CSVGenerator(
+        args.annotations,
+        args.classes,
+        transform_generator=transform_generator,
+        base_dir= args.images_dir
+    )
 
     return generator
 
 
 def parse_args(args):
     parser     = argparse.ArgumentParser(description='Debug script for a RetinaNet network.')
-    subparsers = parser.add_subparsers(help='Arguments for specific dataset types.', dest='dataset_type')
-    subparsers.required = True
-
-    coco_parser = subparsers.add_parser('coco')
-    coco_parser.add_argument('coco_path',  help='Path to dataset directory (ie. /tmp/COCO).')
-    coco_parser.add_argument('--coco-set', help='Name of the set to show (defaults to val2017).', default='val2017')
-
-    pascal_parser = subparsers.add_parser('pascal')
-    pascal_parser.add_argument('pascal_path', help='Path to dataset directory (ie. /tmp/VOCdevkit).')
-    pascal_parser.add_argument('--pascal-set',  help='Name of the set to show (defaults to test).', default='test')
-
-    kitti_parser = subparsers.add_parser('kitti')
-    kitti_parser.add_argument('kitti_path', help='Path to dataset directory (ie. /tmp/kitti).')
-    kitti_parser.add_argument('subset', help='Argument for loading a subset from train/val.')
-
-    def csv_list(string):
-        return string.split(',')
-
-    oid_parser = subparsers.add_parser('oid')
-    oid_parser.add_argument('main_dir', help='Path to dataset directory.')
-    oid_parser.add_argument('subset', help='Argument for loading a subset from train/validation/test.')
-    oid_parser.add_argument('--version',  help='The current dataset version is v4.', default='v4')
-    oid_parser.add_argument('--labels-filter',  help='A list of labels to filter.', type=csv_list, default=None)
-    oid_parser.add_argument('--annotation-cache-dir', help='Path to store annotation cache.', default='.')
-    oid_parser.add_argument('--fixed-labels', help='Use the exact specified labels.', default=False)
-
-    csv_parser = subparsers.add_parser('csv')
-    csv_parser.add_argument('annotations', help='Path to CSV file containing annotations for evaluation.')
-    csv_parser.add_argument('classes',     help='Path to a CSV file containing class label mapping.')
+    parser.add_argument('images_dir', help='Path to a images directory.')
+    parser.add_argument('annotations', help='Path to a CSV file containing annotations for evaluation.')
+    parser.add_argument('classes',     help='Path to a CSV file containing class label mapping.')
 
     parser.add_argument('-l', '--loop', help='Loop forever, even if the dataset is exhausted.', action='store_true')
     parser.add_argument('--no-resize', help='Disable image resizing.', dest='resize', action='store_false')

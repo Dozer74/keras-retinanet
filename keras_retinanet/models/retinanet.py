@@ -17,17 +17,21 @@ limitations under the License.
 import keras
 from .. import initializers
 from .. import layers
+from .. import config
 
 import numpy as np
+import logging
+
+logger = logging.getLogger(__file__)
 
 
 def default_classification_model(
-    num_classes,
-    num_anchors,
-    pyramid_feature_size=256,
-    prior_probability=0.01,
-    classification_feature_size=256,
-    name='classification_submodel'
+        num_classes,
+        num_anchors,
+        pyramid_feature_size=256,
+        prior_probability=0.01,
+        classification_feature_size=256,
+        name='classification_submodel'
 ):
     """ Creates the default regression submodel.
 
@@ -42,12 +46,12 @@ def default_classification_model(
         A keras.models.Model that predicts classes for each anchor.
     """
     options = {
-        'kernel_size' : 3,
-        'strides'     : 1,
-        'padding'     : 'same',
+        'kernel_size': 3,
+        'strides': 1,
+        'padding': 'same',
     }
 
-    inputs  = keras.layers.Input(shape=(None, None, pyramid_feature_size))
+    inputs = keras.layers.Input(shape=(None, None, pyramid_feature_size))
     outputs = inputs
     for i in range(4):
         outputs = keras.layers.Conv2D(
@@ -74,7 +78,8 @@ def default_classification_model(
     return keras.models.Model(inputs=inputs, outputs=outputs, name=name)
 
 
-def default_regression_model(num_anchors, pyramid_feature_size=256, regression_feature_size=256, name='regression_submodel'):
+def default_regression_model(num_anchors, pyramid_feature_size=256, regression_feature_size=256,
+                             name='regression_submodel'):
     """ Creates the default regression submodel.
 
     Args
@@ -90,14 +95,14 @@ def default_regression_model(num_anchors, pyramid_feature_size=256, regression_f
     # RetinaNet (classification) subnets are initialized
     # with bias b = 0 and a Gaussian weight fill with stddev = 0.01.
     options = {
-        'kernel_size'        : 3,
-        'strides'            : 1,
-        'padding'            : 'same',
-        'kernel_initializer' : keras.initializers.normal(mean=0.0, stddev=0.01, seed=None),
-        'bias_initializer'   : 'zeros'
+        'kernel_size': 3,
+        'strides': 1,
+        'padding': 'same',
+        'kernel_initializer': keras.initializers.normal(mean=0.0, stddev=0.01, seed=None),
+        'bias_initializer': 'zeros'
     }
 
-    inputs  = keras.layers.Input(shape=(None, None, pyramid_feature_size))
+    inputs = keras.layers.Input(shape=(None, None, pyramid_feature_size))
     outputs = inputs
     for i in range(4):
         outputs = keras.layers.Conv2D(
@@ -126,15 +131,15 @@ def __create_pyramid_features(C3, C4, C5, feature_size=256):
         A list of feature levels [P3, P4, P5, P6, P7].
     """
     # upsample C5 to get P5 from the FPN paper
-    P5           = keras.layers.Conv2D(feature_size, kernel_size=1, strides=1, padding='same', name='C5_reduced')(C5)
+    P5 = keras.layers.Conv2D(feature_size, kernel_size=1, strides=1, padding='same', name='C5_reduced')(C5)
     P5_upsampled = layers.UpsampleLike(name='P5_upsampled')([P5, C4])
-    P5           = keras.layers.Conv2D(feature_size, kernel_size=3, strides=1, padding='same', name='P5')(P5)
+    P5 = keras.layers.Conv2D(feature_size, kernel_size=3, strides=1, padding='same', name='P5')(P5)
 
     # add P5 elementwise to C4
-    P4           = keras.layers.Conv2D(feature_size, kernel_size=1, strides=1, padding='same', name='C4_reduced')(C4)
-    P4           = keras.layers.Add(name='P4_merged')([P5_upsampled, P4])
+    P4 = keras.layers.Conv2D(feature_size, kernel_size=1, strides=1, padding='same', name='C4_reduced')(C4)
+    P4 = keras.layers.Add(name='P4_merged')([P5_upsampled, P4])
     P4_upsampled = layers.UpsampleLike(name='P4_upsampled')([P4, C3])
-    P4           = keras.layers.Conv2D(feature_size, kernel_size=3, strides=1, padding='same', name='P4')(P4)
+    P4 = keras.layers.Conv2D(feature_size, kernel_size=3, strides=1, padding='same', name='P4')(P4)
 
     # add P4 elementwise to C3
     P3 = keras.layers.Conv2D(feature_size, kernel_size=1, strides=1, padding='same', name='C3_reduced')(C3)
@@ -160,24 +165,23 @@ class AnchorParameters:
         ratios  : List of ratios to use per location in a feature map.
         scales  : List of scales to use per location in a feature map.
     """
+
     def __init__(self, sizes, strides, ratios, scales):
-        self.sizes   = sizes
+        self.sizes = sizes
         self.strides = strides
-        self.ratios  = ratios
-        self.scales  = scales
+        self.ratios = ratios
+        self.scales = scales
 
     def num_anchors(self):
         return len(self.ratios) * len(self.scales)
 
-"""
-The default anchor parameters.
-"""
-AnchorParameters.default = AnchorParameters(
-    sizes   = [32, 64, 128, 256, 512],
-    strides = [8, 16, 32, 64, 128],
-    ratios  = np.array([0.5, 1, 2], keras.backend.floatx()),
-    scales  = np.array([2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)], keras.backend.floatx()),
-)
+    def to_dict(self):
+        return {
+            'sizes': self.sizes,
+            'stides': self.strides,
+            'ratios': self.ratios,
+            'scales': self.scales
+        }
 
 
 def default_submodels(num_classes, num_anchors):
@@ -254,13 +258,13 @@ def __build_anchors(anchor_parameters, features):
 
 
 def retinanet(
-    inputs,
-    backbone_layers,
-    num_classes,
-    num_anchors             = 9,
-    create_pyramid_features = __create_pyramid_features,
-    submodels               = None,
-    name                    = 'retinanet'
+        inputs,
+        backbone_layers,
+        num_classes,
+        num_anchors=None,
+        create_pyramid_features=__create_pyramid_features,
+        submodels=None,
+        name='retinanet'
 ):
     """ Construct a RetinaNet model on top of a backbone.
 
@@ -284,6 +288,9 @@ def retinanet(
         ]
         ```
     """
+    if num_anchors == None:
+        num_anchors = config.NUM_ANCHORS
+
     if submodels is None:
         submodels = default_submodels(num_classes, num_anchors)
 
@@ -299,11 +306,11 @@ def retinanet(
 
 
 def retinanet_bbox(
-    model             = None,
-    anchor_parameters = AnchorParameters.default,
-    nms               = True,
-    name              = 'retinanet-bbox',
-    **kwargs
+        anchor_parameters,
+        model=None,
+        nms=True,
+        name='retinanet-bbox',
+        **kwargs
 ):
     """ Construct a RetinaNet model on top of a backbone and adds convenience functions to output boxes directly.
 
@@ -329,12 +336,16 @@ def retinanet_bbox(
     if model is None:
         model = retinanet(num_anchors=anchor_parameters.num_anchors(), **kwargs)
 
+    logger.debug('Anchor params:')
+    for key, value in anchor_parameters.to_dict().items():
+        logger.debug('%s:\t%s', key.capitalize(), value)
+
     # compute the anchors
     features = [model.get_layer(name).output for name in ['P3', 'P4', 'P5', 'P6', 'P7']]
-    anchors  = __build_anchors(anchor_parameters, features)
+    anchors = __build_anchors(anchor_parameters, features)
 
     # we expect the anchors, regression and classification values as first output
-    regression     = model.outputs[0]
+    regression = model.outputs[0]
     classification = model.outputs[1]
 
     # "other" can be any additional output from custom submodels, by default this will be []

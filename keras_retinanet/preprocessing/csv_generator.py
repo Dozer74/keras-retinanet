@@ -56,7 +56,6 @@ def _read_classes(csv_reader):
     return result
 
 
-
 def _read_annotations_csv(path, classes):
     import pandas as pd
 
@@ -82,6 +81,9 @@ def _read_annotations_csv(path, classes):
 
         if isinstance(row.label, float):
             label = str(int(row.label))
+        else:
+            label = row.label
+
         # check if the current class name is correctly present
         if label not in classes:
             raise ValueError('line {}: unknown class name: \'{}\' (classes: {})'.format(line, label, classes))
